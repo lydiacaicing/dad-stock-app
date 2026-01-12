@@ -7,7 +7,6 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   sources: GroundingSource[];
   analysis: string;
 }> => {
-  // 優先檢查 API Key
   const apiKey = process.env.API_KEY;
   
   if (!apiKey || apiKey === 'undefined' || apiKey === '') {
@@ -16,37 +15,40 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
 
   const ai = new GoogleGenAI({ apiKey });
   
-  /** 
-   * 使用 'gemini-flash-latest'。
-   * 根據測試，這是在免費額度下最穩定支援 Google Search 的型號。
-   */
-  const modelName = 'gemini-flash-latest';
+  // 使用系統規定的最強 Flash 模型，具備搜尋能力
+  const modelName = 'gemini-3-flash-preview';
   
-  const todayStr = new Date().toLocaleDateString('zh-TW');
+  const today = new Date();
+  const todayStr = today.toLocaleDateString('zh-TW');
+
+  // 根據次數區間動態描述
+  const countDesc = filters.maxLimitUp >= 999 
+    ? `至少達到 ${filters.minLimitUp} 次` 
+    : `在 ${filters.minLimitUp} 次到 ${filters.maxLimitUp} 次之間`;
 
   const prompt = `
-    你現在是專業的台灣股市分析助手。今天是 ${todayStr}。
-    請使用 Google Search 搜尋最新的「Goodinfo!台灣股市資訊網」或「玩股網」資料。
+    你現在是專業的台灣股市數據分析師。今天是 ${todayStr}。
+    請搜尋「Goodinfo!台灣股市資訊網」、「玩股網」或「MoneyDJ」。
     
     【任務】
-    找出在 ${filters.startDate} 到 ${filters.endDate} 期間內，所有漲停（漲幅達 9.9% 以上）的台灣股票。
+    找出在 ${filters.startDate} 到 ${filters.endDate} 期間內，曾有過漲停板（漲幅達 9.9% 或以上）的台灣股票。
     
     【篩選條件】
-    1. 價格區間：${filters.minPrice} 到 ${filters.maxPrice} 元。
+    1. 價格區間：${filters.minPrice} ~ ${filters.maxPrice} 元。
     2. 市場類型：${filters.marketTypes.join('及')}。
-    3. 統計這段期間內的「累計漲停總次數」。
+    3. 漲停頻率：計算統計期間內的「累計漲停總次數」，並篩選次數為【${countDesc}】的股票。
     4. 排除興櫃股票。
 
     【輸出格式】
-    請僅回傳 JSON 陣列，不要有 Markdown 語法或解釋：
+    請僅回傳 JSON 陣列，嚴禁任何解釋文字或 Markdown：
     [
       {
         "symbol": "代碼",
-        "name": "公司名稱",
+        "name": "公司簡稱",
         "limitUpCount": 次數數字,
         "sector": "產業別",
         "market": "上市或上櫃",
-        "lastClosePrice": 價格數字
+        "lastClosePrice": 最新收盤價數字
       }
     ]
   `;
@@ -63,12 +65,11 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
 
     const text = response.text || "";
     
-    // 提取參考來源
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = chunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
-        title: chunk.web.title || '財經資訊',
+        title: chunk.web.title || '財經來源',
         uri: chunk.web.uri || ''
       }));
 
@@ -85,33 +86,26 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
           limitUpCount: Number(s.limitUpCount || 0)
         }));
         
-        // 保險過濾
+        // 前端二次精準過濾
         stocks = stocks.filter(s => {
           const p = s.lastClosePrice;
-          return p >= filters.minPrice && p <= filters.maxPrice && s.limitUpCount >= filters.minLimitUp;
+          const priceOk = p >= filters.minPrice && p <= filters.maxPrice;
+          const countOk = s.limitUpCount >= filters.minLimitUp && s.limitUpCount <= filters.maxLimitUp;
+          return priceOk && countOk;
         });
 
+        // 依漲停次數降冪排列
         stocks.sort((a, b) => b.limitUpCount - a.limitUpCount);
       } catch (e) {
-        console.error("解析失敗", e);
+        console.error("JSON 解析失敗", e);
       }
     }
 
     return { stocks, sources, analysis: "OK" };
   } catch (error: any) {
-    console.error("API 完整錯誤內容:", error);
-    
-    // 判斷錯誤類型
+    console.error("API 錯誤詳情:", error);
     const msg = error.message || "";
-    if (msg.includes("429") || msg.includes("Quota")) {
-      throw new Error("QUOTA_EXCEEDED");
-    } else if (msg.includes("403")) {
-      throw new Error("API_KEY_INVALID");
-    } else if (msg.includes("not found")) {
-      throw new Error("MODEL_NOT_FOUND");
-    }
-    
-    // 如果是其他錯誤，就把原始錯誤訊息丟出去以便偵錯
-    throw new Error(`連線失敗: ${msg}`);
+    if (msg.includes("429") || msg.includes("Quota")) throw new Error("QUOTA_EXCEEDED");
+    throw new Error(msg || "連線不穩定");
   }
 };
