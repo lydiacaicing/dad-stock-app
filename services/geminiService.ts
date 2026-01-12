@@ -3,14 +3,15 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { StockLimitUpRecord, FilterState, GroundingSource } from "../types";
 
 /**
- * 智慧型 JSON 提取器：
- * 針對 Gemini 結合搜尋時可能回傳的 Markdown 標籤進行深度清理
+ * 強大的 JSON 提取器：
+ * 針對 Gemini 在搜尋模式下可能回傳的 Markdown 代碼塊或雜訊進行深度清理。
  */
-const extractJson = (text: string) => {
+const extractJsonFromText = (text: string) => {
   try {
-    // 移除可能存在的 Markdown 代碼塊標籤
-    const cleanText = text.replace(/```json\n?|```/g, "").trim();
-    // 尋找 JSON 陣列的起始與結束
+    // 1. 先嘗試移除 Markdown 標籤
+    let cleanText = text.replace(/```json\n?|```/g, "").trim();
+    
+    // 2. 尋找 JSON 陣列的邊界 [ ... ]
     const startIdx = cleanText.indexOf('[');
     const endIdx = cleanText.lastIndexOf(']');
     
@@ -18,10 +19,12 @@ const extractJson = (text: string) => {
       const jsonStr = cleanText.substring(startIdx, endIdx + 1);
       return JSON.parse(jsonStr);
     }
+    
+    // 3. 如果沒找到 [ ]，嘗試直接解析整個字串
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON 解析失敗。原始文字內容：", text);
-    throw new Error("數據解析失敗，請再試一次");
+    console.error("[GeminiService] JSON 解析失敗。原始內容：", text);
+    throw new Error("數據格式異常，AI 未能產生正確的 JSON 列表。");
   }
 };
 
@@ -30,25 +33,27 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   sources: GroundingSource[];
   analysis: string;
 }> => {
-  // 檢查 API KEY 是否存在
   const apiKey = process.env.API_KEY;
-  if (!apiKey || apiKey === 'undefined' || apiKey.length < 10) {
+  
+  // 嚴格檢查金鑰是否存在
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null' || apiKey.length < 10) {
     throw new Error("API_KEY_MISSING");
   }
 
   const ai = new GoogleGenAI({ apiKey: apiKey });
   const modelName = 'gemini-3-flash-preview';
   
+  // 調整 Prompt：明確要求 JSON 代碼塊，但不開啟 API 的 JSON Mode 以確保搜尋功能正常
   const prompt = `
-    請作為專業台股數據官，搜尋並統計 ${filters.startDate} 到 ${filters.endDate} 期間，台灣股市(TWSE/TPEx)中「漲停」的股票。
+    請分析台股資料。
+    時間範圍：${filters.startDate} 到 ${filters.endDate}。
+    篩選條件：股價介於 ${filters.minPrice} ~ ${filters.maxPrice} 元。
+    任務：找出這段時間內「漲停」次數在 ${filters.minLimitUp} 到 ${filters.maxLimitUp} 次的股票。
     
-    篩選標準：
-    1. 股價區間：${filters.minPrice} 到 ${filters.maxPrice} 元。
-    2. 統計目標：這段時間內「漲停次數」至少一次的股票。
-    3. 輸出限制：請只列出漲停次數在 ${filters.minLimitUp} 到 ${filters.maxLimitUp} 之間的股票。
+    請直接回傳一個 JSON 程式碼區塊，格式如下：
+    [{"symbol": "股票代號", "name": "名稱", "limitUpCount": 漲停次數, "sector": "產業", "market": "上市或上櫃", "lastClosePrice": 當前股價}]
     
-    請直接以 JSON 格式回傳，結構必須符合以下定義：
-    [{ "symbol": "代號", "name": "名稱", "limitUpCount": 次數, "sector": "產業", "market": "上市或上櫃", "lastClosePrice": 價格 }]
+    不要提供額外的文字解釋，僅提供 JSON 列表。
   `;
 
   try {
@@ -56,26 +61,28 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
       model: modelName,
       contents: prompt,
       config: {
-        systemInstruction: "你是一個資料庫介面，嚴格禁言，只准回傳正確的 JSON 數據。若搜尋不到則回傳空陣列 []。",
+        systemInstruction: "你是一個專業的台股數據提取器。你必須利用 Google Search 搜尋 Goodinfo 或 Yahoo 股市來獲取真實數據。請將結果整理成 JSON 陣列。",
         tools: [{ googleSearch: {} }],
         temperature: 0.1,
-        responseMimeType: "application/json",
+        // 注意：這裡不設定 responseMimeType，因為會跟 googleSearch 衝突
       },
     });
 
-    const rawText = response.text || "[]";
-    const stocks: StockLimitUpRecord[] = extractJson(rawText);
+    const rawText = response.text || "";
+    if (!rawText) throw new Error("AI 回傳內容為空，請稍後再試。");
+
+    const stocks: StockLimitUpRecord[] = extractJsonFromText(rawText);
     
-    // 提取搜尋來源網址
+    // 提取搜尋來源 (Grounding Sources)
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = chunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
-        title: chunk.web.title || '財經來源',
-        uri: chunk.web.uri || ''
+        title: chunk.web.title || '搜尋來源',
+        uri: chunk.web.uri || '#'
       }));
 
-    // 前端二次過濾，確保萬無一失
+    // 前端二次精確過濾
     const filteredStocks = stocks.filter(s => 
       s.limitUpCount >= filters.minLimitUp && 
       s.limitUpCount <= filters.maxLimitUp &&
@@ -84,12 +91,17 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
     );
 
     filteredStocks.sort((a, b) => b.limitUpCount - a.limitUpCount);
-    return { stocks: filteredStocks, sources, analysis: "OK" };
+    
+    return { 
+      stocks: filteredStocks, 
+      sources, 
+      analysis: "數據獲取成功" 
+    };
   } catch (error: any) {
-    console.error("Gemini API 呼叫異常:", error);
+    console.error("[GeminiService] 錯誤詳情:", error);
     
     if (error.message?.includes("API key not valid")) {
-      throw new Error("金鑰無效，請檢查 Vercel 設定");
+      throw new Error("金鑰錯誤：請檢查 Vercel 設定的 API_KEY 是否正確。");
     }
     
     throw error;
