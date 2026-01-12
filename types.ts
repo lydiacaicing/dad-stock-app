@@ -1,12 +1,11 @@
 
 export interface StockLimitUpRecord {
-  rank: number;
   symbol: string;
   name: string;
   limitUpCount: number;
   sector: string;
   lastClosePrice: number;
-  market: '上市' | '上櫃';
+  market: '上市' | '上櫃' | '未知';
 }
 
 export interface FilterState {
