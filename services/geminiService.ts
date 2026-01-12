@@ -17,10 +17,6 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   const ai = new GoogleGenAI({ apiKey });
   const modelName = 'gemini-3-pro-preview';
   
-  const marketFilterDesc = filters.marketTypes.length > 0 
-    ? `市場範圍：嚴格限定只包含 ${filters.marketTypes.join(' 與 ')}，其他的(如興櫃)請排除` 
-    : "包含上市、上櫃";
-
   // 計算天數差異
   const start = new Date(filters.startDate);
   const end = new Date(filters.endDate);
@@ -34,8 +30,8 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
     1. **日期範圍**：${filters.startDate} 至 ${filters.endDate} (共 ${diffDays} 天)。
     2. **價格範圍**：${filters.minPrice} 元 至 ${filters.maxPrice} 元。
        (爸爸只看中低價股，超過 ${filters.maxPrice} 元的請直接剔除，低於 ${filters.minPrice} 元的也剔除)。
-    3. **市場別**：${marketFilterDesc}。
-       (注意：Goodinfo 的預設漲停列表通常不含興櫃，若使用者沒選興櫃，請確保不要列入)。
+    3. **市場別**：只包含上市與上櫃。
+       (重要：請嚴格排除「興櫃」股票，只保留上市與上櫃)。
     4. **漲停次數**：這段期間內累計 ${filters.minLimitUp} ~ ${filters.maxLimitUp} 次。
 
     【執行策略：模擬查詢 Goodinfo】
@@ -102,12 +98,13 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
           const limitUpCondition = s.limitUpCount >= filters.minLimitUp && s.limitUpCount <= filters.maxLimitUp;
           
           let marketCondition = false;
-          // 寬鬆比對市場名稱
+          // 寬鬆比對市場名稱 (上市、上櫃)
           if (filters.marketTypes.some(t => s.market.includes(t))) {
             marketCondition = true;
           }
-          // 特殊處理：如果使用者只要上市上櫃，排除興櫃
-          if (!filters.marketTypes.includes('興櫃') && s.market.includes('興櫃')) {
+          
+          // 嚴格排除興櫃 (即使 filters 可能沒選，也強制排除)
+          if (s.market.includes('興櫃')) {
             marketCondition = false;
           }
 

@@ -6,7 +6,7 @@ export interface StockLimitUpRecord {
   limitUpCount: number;
   sector: string;
   lastClosePrice: number;
-  market: '上市' | '上櫃' | '興櫃';
+  market: '上市' | '上櫃';
 }
 
 export interface FilterState {

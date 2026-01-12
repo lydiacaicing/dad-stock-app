@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   TrendingUp, 
   AlertCircle,
@@ -35,11 +35,15 @@ const App: React.FC = () => {
 
   const [stocks, setStocks] = useState<StockLimitUpRecord[]>([]);
   const [sources, setSources] = useState<GroundingSource[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  
+  // 修改預設狀態：一開始不載入，也沒有搜尋過
+  const [loading, setLoading] = useState<boolean>(false);
+  const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async (currentFilters: FilterState) => {
     setLoading(true);
+    setHasSearched(true); // 標記已經開始搜尋
     setError(null);
     try {
       const result = await fetchLimitUpRanking(currentFilters);
@@ -56,9 +60,10 @@ const App: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    loadData(filters);
-  }, []);
+  // 移除 useEffect，避免一載入就自動執行
+  // useEffect(() => {
+  //   loadData(filters);
+  // }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -130,7 +135,7 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="hidden sm:flex gap-2">
-            {['上市', '上櫃', '興櫃'].map(m => (
+            {['上市', '上櫃'].map(m => (
               <button
                 key={m}
                 onClick={() => toggleMarketType(m)}
@@ -254,7 +259,14 @@ const App: React.FC = () => {
 
       {/* 結果列表 */}
       <main className="max-w-5xl mx-auto pb-12 px-4">
-        {error ? (
+        {!hasSearched ? (
+          // 初始畫面：還沒開始搜尋時顯示
+          <div className="text-center py-20 bg-white/50 rounded-3xl border border-slate-200 border-dashed">
+            <TrendingUp className="w-24 h-24 text-slate-200 mx-auto mb-6" />
+            <h2 className="text-2xl font-black text-slate-400">準備好了嗎？</h2>
+            <p className="text-slate-400 font-bold mt-2 text-lg">調整上方的日期與價格，按下「開始統計」幫爸爸找強勢股！</p>
+          </div>
+        ) : error ? (
            <div className="bg-red-50 rounded-2xl p-8 border-2 border-red-200 text-center">
              <div className="bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
                 {error === 'API_KEY_MISSING' ? <Key className="w-10 h-10 text-red-600" /> : <AlertCircle className="w-10 h-10 text-red-600" />}
