@@ -7,42 +7,46 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   sources: GroundingSource[];
   analysis: string;
 }> => {
+  // 優先檢查 API Key
   const apiKey = process.env.API_KEY;
   
   if (!apiKey || apiKey === 'undefined' || apiKey === '') {
     throw new Error("API_KEY_MISSING");
   }
 
-  // 使用 Flash 模型，因為 Pro 模型在免費層級可能限制為 0
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = 'gemini-3-flash-preview';
   
-  const today = new Date();
-  const todayStr = today.toLocaleDateString('zh-TW');
+  /** 
+   * 使用 'gemini-flash-latest'。
+   * 根據測試，這是在免費額度下最穩定支援 Google Search 的型號。
+   */
+  const modelName = 'gemini-flash-latest';
+  
+  const todayStr = new Date().toLocaleDateString('zh-TW');
 
-  // 強化 Prompt，確保 AI 明白現在是 2026 年
   const prompt = `
     你現在是專業的台灣股市分析助手。今天是 ${todayStr}。
+    請使用 Google Search 搜尋最新的「Goodinfo!台灣股市資訊網」或「玩股網」資料。
     
     【任務】
-    請搜尋「Goodinfo!台灣股市資訊網」或「玩股網」，找出在 ${filters.startDate} 到 ${filters.endDate} 期間內，所有漲停（漲幅 10%）的股票。
+    找出在 ${filters.startDate} 到 ${filters.endDate} 期間內，所有漲停（漲幅達 9.9% 以上）的台灣股票。
     
     【篩選條件】
-    1. 價格區間：${filters.minPrice} ~ ${filters.maxPrice} 元。
+    1. 價格區間：${filters.minPrice} 到 ${filters.maxPrice} 元。
     2. 市場類型：${filters.marketTypes.join('及')}。
-    3. 計算這段期間內「累計漲停次數」。
+    3. 統計這段期間內的「累計漲停總次數」。
     4. 排除興櫃股票。
 
     【輸出格式】
-    請僅回傳 JSON 陣列格式，不要包含 Markdown 語法或其他解釋文字：
+    請僅回傳 JSON 陣列，不要有 Markdown 語法或解釋：
     [
       {
-        "symbol": "股票代碼",
+        "symbol": "代碼",
         "name": "公司名稱",
-        "limitUpCount": 累計次數數字,
+        "limitUpCount": 次數數字,
         "sector": "產業別",
         "market": "上市或上櫃",
-        "lastClosePrice": 最新收盤價數字
+        "lastClosePrice": 價格數字
       }
     ]
   `;
@@ -59,54 +63,55 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
 
     const text = response.text || "";
     
-    // 提取 Grounding 來源
+    // 提取參考來源
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = chunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
-        title: chunk.web.title || '財經來源',
+        title: chunk.web.title || '財經資訊',
         uri: chunk.web.uri || ''
       }));
 
     let stocks: StockLimitUpRecord[] = [];
-    
-    // 從回傳內容中找出 JSON 部分
     const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    
     if (jsonMatch) {
       try {
         const rawStocks = JSON.parse(jsonMatch[0]);
         stocks = rawStocks.map((s: any, idx: number) => ({
           ...s,
           rank: idx + 1,
-          lastClosePrice: Number(s.lastClosePrice),
-          limitUpCount: Number(s.limitUpCount)
+          lastClosePrice: Number(s.lastClosePrice || 0),
+          limitUpCount: Number(s.limitUpCount || 0)
         }));
         
-        // 本地端過濾確保萬無一失
+        // 保險過濾
         stocks = stocks.filter(s => {
-          const priceOk = s.lastClosePrice >= filters.minPrice && s.lastClosePrice <= filters.maxPrice;
-          const marketOk = filters.marketTypes.some(t => s.market?.includes(t));
-          return priceOk && marketOk && s.limitUpCount >= filters.minLimitUp;
+          const p = s.lastClosePrice;
+          return p >= filters.minPrice && p <= filters.maxPrice && s.limitUpCount >= filters.minLimitUp;
         });
 
-        // 依漲停次數降序排列
         stocks.sort((a, b) => b.limitUpCount - a.limitUpCount);
       } catch (e) {
-        console.error("JSON 解析錯誤", e);
+        console.error("解析失敗", e);
       }
     }
 
-    return { stocks, sources, analysis: "完成" };
+    return { stocks, sources, analysis: "OK" };
   } catch (error: any) {
-    console.error("Gemini 服務錯誤:", error);
+    console.error("API 完整錯誤內容:", error);
     
-    const errMsg = error.message || "";
-    if (errMsg.includes("429") || errMsg.includes("Quota") || errMsg.includes("exhausted")) {
+    // 判斷錯誤類型
+    const msg = error.message || "";
+    if (msg.includes("429") || msg.includes("Quota")) {
       throw new Error("QUOTA_EXCEEDED");
-    } else if (errMsg.includes("403") || errMsg.includes("key")) {
-      throw new Error("INVALID_API_KEY");
+    } else if (msg.includes("403")) {
+      throw new Error("API_KEY_INVALID");
+    } else if (msg.includes("not found")) {
+      throw new Error("MODEL_NOT_FOUND");
     }
     
-    throw new Error(errMsg || "連線不穩定，請重試。");
+    // 如果是其他錯誤，就把原始錯誤訊息丟出去以便偵錯
+    throw new Error(`連線失敗: ${msg}`);
   }
 };

@@ -13,7 +13,8 @@ import {
   Info,
   Coffee,
   RefreshCw,
-  Clock
+  Clock,
+  Bug
 } from 'lucide-react';
 import { StockLimitUpRecord, FilterState, GroundingSource } from './types';
 import { fetchLimitUpRanking } from './services/geminiService';
@@ -21,10 +22,10 @@ import { fetchLimitUpRanking } from './services/geminiService';
 const App: React.FC = () => {
   const now = new Date();
   const today = now.toISOString().split('T')[0];
-  const defaultStartDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const defaultStart = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const [filters, setFilters] = useState<FilterState>({
-    startDate: defaultStartDate,
+    startDate: defaultStart,
     endDate: today,
     minPrice: 10,
     maxPrice: 80,
@@ -33,260 +34,203 @@ const App: React.FC = () => {
     maxLimitUp: 999
   });
 
-  const [limitUpMode, setLimitUpMode] = useState<string>('all');
+  const [loading, setLoading] = useState(false);
   const [stocks, setStocks] = useState<StockLimitUpRecord[]>([]);
   const [sources, setSources] = useState<GroundingSource[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  const loadData = useCallback(async (currentFilters: FilterState) => {
+  const handleSearch = async () => {
     setLoading(true);
-    setHasSearched(true);
     setError(null);
+    setHasSearched(true);
     try {
-      const result = await fetchLimitUpRanking(currentFilters);
+      const result = await fetchLimitUpRanking(filters);
       setStocks(result.stocks);
       setSources(result.sources);
     } catch (err: any) {
-      console.error("App 捕捉錯誤:", err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFilters(prev => ({
       ...prev,
-      [name]: (name.includes('Price') || name.includes('LimitUp')) 
-        ? (value === '' ? 0 : Number(value)) 
-        : value
-    }));
-  };
-
-  const handleLimitUpModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const mode = e.target.value;
-    setLimitUpMode(mode);
-    if (mode === 'all') {
-      setFilters(prev => ({ ...prev, minLimitUp: 1 }));
-    } else if (mode === 'strong') {
-      setFilters(prev => ({ ...prev, minLimitUp: 2 }));
-    }
-  };
-
-  const toggleMarketType = (type: string) => {
-    setFilters(prev => ({
-      ...prev,
-      marketTypes: prev.marketTypes.includes(type)
-        ? prev.marketTypes.filter(t => t !== type)
-        : [...prev.marketTypes, type]
+      [name]: name.includes('Price') ? Number(value) : value
     }));
   };
 
   return (
-    <div className="min-h-screen bg-[#f1f5f9] text-slate-900 font-sans">
-      
-      {/* Header */}
-      <header className="bg-white border-b-4 border-red-600 py-4 px-6 shadow-md sticky top-0 z-50">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header className="bg-white border-b-4 border-red-600 py-5 px-6 shadow-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-red-600 p-2 rounded-xl shadow-lg">
-              <TrendingUp className="text-white w-6 h-6" />
+          <div className="flex items-center gap-4">
+            <div className="bg-red-600 p-2.5 rounded-2xl shadow-lg">
+              <TrendingUp className="text-white w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-800">台股漲停分析助手</h1>
-              <p className="text-[10px] font-bold text-slate-400">跨入 2026！最懂爸爸的選股工具</p>
+              <h1 className="text-2xl font-black text-slate-800 tracking-tight">台股漲停分析器 v2.0</h1>
+              <p className="text-xs font-bold text-slate-400">當前年份: 2026 | 已切換至穩定模型</p>
             </div>
-          </div>
-          <div className="flex gap-2">
-            {['上市', '上櫃'].map(m => (
-              <button
-                key={m}
-                onClick={() => toggleMarketType(m)}
-                className={`px-4 py-1.5 rounded-full text-sm font-bold border-2 transition-all ${
-                  filters.marketTypes.includes(m) 
-                  ? 'bg-slate-800 text-white border-slate-800' 
-                  : 'bg-white text-slate-400 border-slate-200'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
           </div>
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto p-4 md:p-6">
-        {/* Filter Card */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 mb-8">
-          <div className="flex items-center gap-2 mb-4 text-slate-700">
-            <Filter className="w-5 h-5" />
-            <h2 className="text-lg font-black">爸爸的查詢條件</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-500 flex items-center gap-1">
-                <Calendar className="w-4 h-4" /> 統計期間
-              </label>
-              <div className="grid grid-cols-1 gap-2">
-                <input type="date" name="startDate" value={filters.startDate} onChange={handleInputChange} 
-                  className="px-3 py-2 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 focus:border-red-500 outline-none w-full" />
-                <input type="date" name="endDate" value={filters.endDate} onChange={handleInputChange} 
-                  className="px-3 py-2 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 focus:border-red-500 outline-none w-full" />
+      <main className="max-w-6xl mx-auto p-4 md:p-8">
+        <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="space-y-3">
+              <label className="text-sm font-black text-slate-500 uppercase tracking-widest">統計日期</label>
+              <div className="space-y-2">
+                <input type="date" name="startDate" value={filters.startDate} onChange={handleInputChange} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold focus:border-red-500 outline-none" />
+                <input type="date" name="endDate" value={filters.endDate} onChange={handleInputChange} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold focus:border-red-500 outline-none" />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-500">股價範圍 (元)</label>
-              <div className="flex items-center gap-2">
-                <input type="number" name="minPrice" value={filters.minPrice} onChange={handleInputChange} 
-                  className="w-full px-3 py-2 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 text-center focus:border-red-500" />
-                <span className="text-slate-300">~</span>
-                <input type="number" name="maxPrice" value={filters.maxPrice} onChange={handleInputChange} 
-                  className="w-full px-3 py-2 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 text-center focus:border-red-500" />
+            <div className="space-y-3">
+              <label className="text-sm font-black text-slate-500 uppercase tracking-widest">股價區間 (元)</label>
+              <div className="flex items-center gap-3">
+                <input type="number" name="minPrice" value={filters.minPrice} onChange={handleInputChange} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-center" />
+                <span className="text-slate-300 font-black">~</span>
+                <input type="number" name="maxPrice" value={filters.maxPrice} onChange={handleInputChange} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-center" />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-500">累積漲停次數</label>
-              <select value={limitUpMode} onChange={handleLimitUpModeChange} 
-                className="w-full px-3 py-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-red-500">
-                <option value="all">全部 (只要有漲停)</option>
-                <option value="strong">強勢 (2次以上)</option>
+            <div className="space-y-3">
+              <label className="text-sm font-black text-slate-500 uppercase tracking-widest">漲停次數篩選</label>
+              <select 
+                value={filters.minLimitUp} 
+                onChange={(e) => setFilters({...filters, minLimitUp: Number(e.target.value)})}
+                className="w-full px-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold outline-none focus:border-red-500"
+              >
+                <option value="1">至少 1 次漲停</option>
+                <option value="2">至少 2 次漲停 (強勢)</option>
+                <option value="3">至少 3 次漲停 (極強)</option>
               </select>
             </div>
 
             <div className="flex items-end">
               <button 
-                onClick={() => loadData(filters)}
+                onClick={handleSearch}
                 disabled={loading}
-                className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white font-black rounded-2xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-red-100 active:scale-95"
+                className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white font-black rounded-2xl transition-all flex items-center justify-center gap-3 shadow-xl shadow-red-100 active:scale-95"
               >
                 {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Search className="w-6 h-6" />}
-                {loading ? "正在幫您找股票..." : "開始分析統計"}
+                {loading ? "AI 正在分析中..." : "開始統計"}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Status / Results Area */}
         {!hasSearched ? (
-          <div className="text-center py-20 bg-white/50 rounded-3xl border-2 border-dashed border-slate-300">
-            <Clock className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-400 font-bold text-lg">調整上方條件，按下按鈕幫您找出強勢股！</p>
+          <div className="text-center py-24 bg-white/40 rounded-[40px] border-4 border-dashed border-slate-200">
+            <Clock className="w-20 h-20 text-slate-200 mx-auto mb-6" />
+            <h3 className="text-2xl font-black text-slate-300">請設定條件後開始分析</h3>
           </div>
         ) : error ? (
-          <div className="bg-white border-2 border-red-100 p-10 rounded-3xl text-center shadow-xl">
+          <div className="bg-white border-2 border-red-100 p-12 rounded-[40px] text-center shadow-2xl animate-in zoom-in-95 duration-300">
             {error === "QUOTA_EXCEEDED" ? (
               <>
-                <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
+                <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8">
                   <Coffee className="w-12 h-12 text-red-600" />
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-2">Google AI 目前有點忙</h3>
-                <p className="text-slate-600 font-bold mb-8 leading-relaxed">
-                  因為是免費版，Google 限制每分鐘的連線次數。<br/>
-                  請您稍微休息 **60 秒**，再按一次按鈕試試看喔！
+                <h3 className="text-3xl font-black text-slate-800 mb-4">AI 正在排隊中</h3>
+                <p className="text-slate-500 font-bold text-lg mb-10 leading-relaxed">
+                  因為目前使用的是免費通道，Google 限制每分鐘的查詢頻率。<br/>
+                  請休息 **60 秒**，再按一次「開始統計」就可以了。
                 </p>
-                <button 
-                  onClick={() => loadData(filters)}
-                  className="px-10 py-4 bg-red-600 text-white font-black rounded-2xl hover:bg-red-700 flex items-center gap-2 mx-auto shadow-lg"
-                >
-                  <RefreshCw className="w-5 h-5" /> 現在再試一次
-                </button>
+                <button onClick={handleSearch} className="px-12 py-5 bg-red-600 text-white font-black rounded-2xl hover:bg-red-700 flex items-center gap-3 mx-auto shadow-lg"><RefreshCw className="w-6 h-6" /> 我休息好了，再試一次</button>
               </>
-            ) : error === "API_KEY_MISSING" || error === "INVALID_API_KEY" ? (
-              <>
-                <Key className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                <h3 className="text-2xl font-black text-red-800">API 金鑰設定錯誤</h3>
-                <p className="text-slate-500 mt-2 font-bold">請檢查 Vercel 後台的 API_KEY 是否正確輸入且已重新部署。</p>
-              </>
+            ) : error === "API_KEY_MISSING" ? (
+              <div className="space-y-4">
+                <Key className="w-16 h-16 text-red-500 mx-auto" />
+                <h3 className="text-2xl font-black">找不到 API 金鑰</h3>
+                <p className="font-bold text-slate-400">請確認 Vercel 後台是否已設定 API_KEY 環境變數。</p>
+              </div>
             ) : (
-              <>
-                <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                <h3 className="text-xl font-black text-red-800">連線有點狀況</h3>
-                <p className="text-slate-500 mt-2">{error}</p>
-                <button onClick={() => loadData(filters)} className="mt-6 px-6 py-2 border-2 border-slate-200 rounded-xl font-bold hover:bg-slate-50">重試一次</button>
-              </>
+              <div className="space-y-6">
+                <Bug className="w-16 h-16 text-red-500 mx-auto" />
+                <h3 className="text-2xl font-black text-red-600">偵測到技術錯誤</h3>
+                <div className="p-6 bg-slate-50 rounded-2xl text-left border border-slate-200">
+                  <p className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-widest">Error Detail:</p>
+                  <code className="text-sm font-bold text-slate-700 break-all">{error}</code>
+                </div>
+                <button onClick={handleSearch} className="px-8 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-black transition-colors">嘗試重新連線</button>
+              </div>
             )}
           </div>
         ) : (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-center mb-6 px-2">
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
-                統計結果
-                <span className="bg-red-600 text-white text-sm px-3 py-1 rounded-full shadow-md">
-                  共 {stocks.length} 檔
-                </span>
-              </h2>
-              {stocks.length > 0 && (
-                <button onClick={() => {
-                  const txt = stocks.map(s => `${s.symbol} ${s.name} (漲停:${s.limitUpCount}次)`).join('\n');
-                  navigator.clipboard.writeText(txt);
-                  alert('已複製到剪貼簿！');
-                }} className="text-sm font-bold text-slate-500 hover:text-red-600 flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-                  <Copy className="w-4 h-4" /> 複製結果
-                </button>
-              )}
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 border-b-2 border-slate-100">
-                    <tr>
-                      <th className="px-6 py-5 font-black text-slate-400">股票名稱</th>
-                      <th className="px-6 py-5 font-black text-slate-400 text-center">最新價格</th>
-                      <th className="px-6 py-4 font-black text-red-600 text-center bg-red-50/50">累計漲停</th>
-                      <th className="px-6 py-5 font-black text-slate-400">產業類別</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {stocks.length > 0 ? stocks.map(stock => (
-                      <tr key={stock.symbol} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="px-6 py-5">
-                          <div className="font-black text-lg text-slate-900">{stock.name}</div>
-                          <div className="text-sm font-bold text-slate-400 font-mono tracking-tighter">{stock.symbol} · {stock.market}</div>
-                        </td>
-                        <td className="px-6 py-5 text-center font-black font-mono text-slate-700 text-lg">${stock.lastClosePrice}</td>
-                        <td className="px-6 py-5 text-center bg-red-50/20">
-                          <span className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-red-600 text-white text-xl font-black shadow-lg shadow-red-200">
-                            {stock.limitUpCount}
-                          </span>
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className="text-sm font-bold px-3 py-1.5 bg-slate-100 rounded-lg text-slate-600 border border-slate-200">{stock.sector}</span>
-                        </td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={4} className="py-24 text-center">
-                          <Info className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                          <p className="text-slate-400 font-black text-xl">這段期間沒有符合條件的漲停股</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="flex justify-between items-end px-4">
+              <div>
+                <h2 className="text-3xl font-black text-slate-800">統計結果</h2>
+                <p className="text-sm font-bold text-slate-400">依據漲停次數由高到低排列</p>
+              </div>
+              <div className="bg-red-600 text-white px-5 py-2 rounded-full font-black shadow-lg">
+                共 {stocks.length} 檔
               </div>
             </div>
-            
+
+            <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b-2 border-slate-100">
+                  <tr>
+                    <th className="px-8 py-6 font-black text-slate-400 text-sm uppercase tracking-widest">股票資訊</th>
+                    <th className="px-8 py-6 font-black text-slate-400 text-sm uppercase tracking-widest text-center">價格</th>
+                    <th className="px-8 py-6 font-black text-red-600 text-sm uppercase tracking-widest text-center bg-red-50/50">累計漲停</th>
+                    <th className="px-8 py-6 font-black text-slate-400 text-sm uppercase tracking-widest">產業</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {stocks.length > 0 ? stocks.map(stock => (
+                    <tr key={stock.symbol} className="hover:bg-slate-50 transition-colors group">
+                      <td className="px-8 py-7">
+                        <div className="font-black text-xl text-slate-900 group-hover:text-red-600 transition-colors">{stock.name}</div>
+                        <div className="text-sm font-bold text-slate-400 font-mono tracking-wider">{stock.symbol} · {stock.market}</div>
+                      </td>
+                      <td className="px-8 py-7 text-center font-black font-mono text-slate-700 text-xl">${stock.lastClosePrice}</td>
+                      <td className="px-8 py-7 text-center bg-red-50/20">
+                        <div className="inline-flex items-center justify-center w-14 h-14 rounded-3xl bg-red-600 text-white text-2xl font-black shadow-xl shadow-red-200 transform group-hover:scale-110 transition-transform">
+                          {stock.limitUpCount}
+                        </div>
+                      </td>
+                      <td className="px-8 py-7">
+                        <span className="text-sm font-black px-4 py-2 bg-slate-100 rounded-xl text-slate-600 border border-slate-200">{stock.sector}</span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={4} className="py-32 text-center">
+                        <Info className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                        <p className="text-slate-400 font-black text-2xl">此區間內沒有符合條件的股票</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
             {sources.length > 0 && (
-              <div className="mt-8 flex flex-wrap gap-4 px-4 py-4 bg-white/50 rounded-2xl border border-slate-200">
-                <span className="text-sm font-black text-slate-400 flex items-center gap-2">
-                  <Info className="w-4 h-4" /> 參考資料來源：
-                </span>
-                {sources.map((s, i) => (
-                  <a key={i} href={s.uri} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-blue-600 hover:text-red-600 flex items-center gap-1 transition-colors">
-                    <ExternalLink className="w-3.5 h-3.5" /> {s.title}
-                  </a>
-                ))}
+              <div className="p-8 bg-white/60 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-4 text-slate-400">
+                  <Info className="w-4 h-4" />
+                  <span className="text-sm font-black uppercase tracking-widest">AI 參考來源</span>
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  {sources.map((s, i) => (
+                    <a key={i} href={s.uri} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 text-sm font-bold text-blue-600 hover:text-red-600 hover:border-red-200 transition-all shadow-sm">
+                      <ExternalLink className="w-4 h-4" /> {s.title}
+                    </a>
+                  ))}
+                </div>
               </div>
             )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 };
