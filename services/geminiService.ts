@@ -14,39 +14,31 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = 'gemini-3-pro-preview';
+  // 改用 Flash 版本，免費額度較高且支援搜尋
+  const modelName = 'gemini-3-flash-preview';
   
-  const start = new Date(filters.startDate);
-  const end = new Date(filters.endDate);
-  const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
   const todayStr = new Date().toLocaleDateString('zh-TW');
 
   const prompt = `
-    你現在是專屬股票助理。今天是 ${todayStr}。
-    請利用 Google Search 搜尋「Goodinfo 台灣股市資訊網」、「MoneyDJ」或「玩股網」的最新漲停資料。
+    你現在是專屬股票分析師。今天是 ${todayStr}。
+    請使用 Google Search 搜尋台灣股市資訊，找出在 ${filters.startDate} 到 ${filters.endDate} 期間內漲停的股票。
 
-    【查詢任務】
-    1. **日期範圍**：${filters.startDate} 至 ${filters.endDate}。
-    2. **篩選條件**：
-       - 價格：${filters.minPrice} ~ ${filters.maxPrice} 元。
-       - 市場：上市、上櫃 (絕對不要興櫃)。
-       - 漲停次數：累計出現 ${filters.minLimitUp} ~ ${filters.maxLimitUp} 次。
+    【篩選標準】
+    1. 價格範圍：${filters.minPrice} 到 ${filters.maxPrice} 元。
+    2. 市場：${filters.marketTypes.join('、')}。
+    3. 統計這段期間內，每檔股票「累計漲停」的總次數。
+    4. 排除興櫃股票。
 
-    【執行步驟】
-    - 找出這段期間內每天的漲停股票清單。
-    - 統計每檔股票出現的總次數。
-    - 回傳最後的收盤價與產業類別。
-
-    【輸出格式】
-    請只回傳純 JSON 陣列：
+    【回傳格式】
+    請嚴格只回傳 JSON 陣列，不要有其他文字：
     [
       {
-        "symbol": "代號",
-        "name": "名稱",
-        "limitUpCount": 數字,
-        "sector": "產業",
-        "market": "上市/上櫃",
-        "lastClosePrice": 數字
+        "symbol": "股票代碼",
+        "name": "公司名稱",
+        "limitUpCount": 累計次數數字,
+        "sector": "產業別",
+        "market": "上市或上櫃",
+        "lastClosePrice": 最新收盤價數字
       }
     ]
   `;
@@ -58,7 +50,6 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
       config: {
         tools: [{ googleSearch: {} }],
         temperature: 0.1,
-        thinkingConfig: { thinkingBudget: 28000 }
       },
     });
 
@@ -67,11 +58,12 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
     const sources: GroundingSource[] = chunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
-        title: chunk.web.title || '財經來源',
+        title: chunk.web.title || '財經資訊來源',
         uri: chunk.web.uri || ''
       }));
 
     let stocks: StockLimitUpRecord[] = [];
+    // 嘗試從 AI 回傳的文字中抓取 JSON
     const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
     
     if (jsonMatch) {
@@ -84,15 +76,15 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
           limitUpCount: Number(s.limitUpCount)
         }));
         
+        // 再次進行本地端保險篩選
         stocks = stocks.filter(s => {
           return s.lastClosePrice >= filters.minPrice && 
                  s.lastClosePrice <= filters.maxPrice &&
                  s.limitUpCount >= filters.minLimitUp &&
-                 filters.marketTypes.some(t => s.market.includes(t)) &&
-                 !s.market.includes('興櫃');
+                 filters.marketTypes.some(t => s.market?.includes(t));
         });
 
-        stocks.sort((a, b) => b.limitUpCount - a.limitUpCount || b.lastClosePrice - a.lastClosePrice);
+        stocks.sort((a, b) => b.limitUpCount - a.limitUpCount);
       } catch (e) {
         console.error("JSON 解析失敗", e);
       }
@@ -100,8 +92,13 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
 
     return { stocks, sources, analysis: "完成" };
   } catch (error: any) {
-    console.error("Gemini API 錯誤細節:", error);
-    // 拋出更具體的錯誤訊息
-    throw new Error(error.message || "連線至 Google AI 失敗，請檢查 Key 或網路。");
+    console.error("Gemini API 完整錯誤:", error);
+    
+    // 如果是 429 錯誤，自定義清楚的訊息
+    if (error.message?.includes("429") || error.message?.includes("Quota")) {
+      throw new Error("QUOTA_EXCEEDED");
+    }
+    
+    throw new Error(error.message || "發生未知連線錯誤");
   }
 };
