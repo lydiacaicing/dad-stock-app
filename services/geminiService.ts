@@ -7,7 +7,14 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   sources: GroundingSource[];
   analysis: string;
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const apiKey = process.env.API_KEY;
+  
+  // 增加檢查：如果沒有金鑰，直接丟出錯誤，不要等到請求失敗
+  if (!apiKey || apiKey === 'undefined') {
+    throw new Error("API_KEY_MISSING");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   const modelName = 'gemini-3-pro-preview';
   
   const marketFilterDesc = filters.marketTypes.length > 0 
