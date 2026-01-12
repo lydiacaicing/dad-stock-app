@@ -19,31 +19,34 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
   const start = new Date(filters.startDate);
   const end = new Date(filters.endDate);
   const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
-  
+  const todayStr = new Date().toLocaleDateString('zh-TW');
+
   const prompt = `
-    你現在是爸爸的專屬股票助理。請利用 Google Search 搜尋「Goodinfo 台灣股市資訊網」或「MoneyDJ」的漲停股資料。
+    你現在是專屬股票助理。今天是 ${todayStr}。
+    請利用 Google Search 搜尋「Goodinfo 台灣股市資訊網」、「MoneyDJ」或「玩股網」的最新漲停資料。
 
-    【使用者篩選條件】
-    1. **日期範圍**：${filters.startDate} 至 ${filters.endDate} (共 ${diffDays} 天)。
-    2. **價格範圍**：${filters.minPrice} 元 至 ${filters.maxPrice} 元。
-    3. **市場別**：只包含上市與上櫃 (嚴格排除興櫃)。
-    4. **漲停次數**：累計 ${filters.minLimitUp} ~ ${filters.maxLimitUp} 次。
+    【查詢任務】
+    1. **日期範圍**：${filters.startDate} 至 ${filters.endDate}。
+    2. **篩選條件**：
+       - 價格：${filters.minPrice} ~ ${filters.maxPrice} 元。
+       - 市場：上市、上櫃 (絕對不要興櫃)。
+       - 漲停次數：累計出現 ${filters.minLimitUp} ~ ${filters.maxLimitUp} 次。
 
-    【執行策略】
-    1. **搜尋**：搜尋這段期間每一天的漲停股清單。
-    2. **統計**：將同一個股票代號出現的次數累加。
-    3. **排除**：排除興櫃股票、排除價格不符的股票。
+    【執行步驟】
+    - 找出這段期間內每天的漲停股票清單。
+    - 統計每檔股票出現的總次數。
+    - 回傳最後的收盤價與產業類別。
 
     【輸出格式】
-    請回傳純 JSON 格式，結構如下：
+    請只回傳純 JSON 陣列：
     [
       {
-        "symbol": "股票代號",
-        "name": "股票名稱",
-        "limitUpCount": 累積漲停次數 (數字),
-        "sector": "產業別",
+        "symbol": "代號",
+        "name": "名稱",
+        "limitUpCount": 數字,
+        "sector": "產業",
         "market": "上市/上櫃",
-        "lastClosePrice": 最近收盤價 (數字)
+        "lastClosePrice": 數字
       }
     ]
   `;
@@ -60,12 +63,11 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
     });
 
     const text = response.text || "";
-    
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = chunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => ({
-        title: chunk.web.title || '財經資料來源',
+        title: chunk.web.title || '財經來源',
         uri: chunk.web.uri || ''
       }));
 
@@ -82,39 +84,24 @@ export const fetchLimitUpRanking = async (filters: FilterState): Promise<{
           limitUpCount: Number(s.limitUpCount)
         }));
         
-        // JavaScript 端二次過濾
         stocks = stocks.filter(s => {
-          const priceCondition = s.lastClosePrice >= filters.minPrice && s.lastClosePrice <= filters.maxPrice;
-          const limitUpCondition = s.limitUpCount >= filters.minLimitUp && s.limitUpCount <= filters.maxLimitUp;
-          
-          let marketCondition = false;
-          if (filters.marketTypes.some(t => s.market.includes(t))) {
-            marketCondition = true;
-          }
-          if (s.market.includes('興櫃')) {
-            marketCondition = false;
-          }
-
-          return priceCondition && limitUpCondition && marketCondition;
+          return s.lastClosePrice >= filters.minPrice && 
+                 s.lastClosePrice <= filters.maxPrice &&
+                 s.limitUpCount >= filters.minLimitUp &&
+                 filters.marketTypes.some(t => s.market.includes(t)) &&
+                 !s.market.includes('興櫃');
         });
 
-        // 排序：次數多 -> 價格高
-        stocks.sort((a, b) => {
-          if (b.limitUpCount !== a.limitUpCount) {
-            return b.limitUpCount - a.limitUpCount;
-          }
-          return b.lastClosePrice - a.lastClosePrice;
-        });
-
+        stocks.sort((a, b) => b.limitUpCount - a.limitUpCount || b.lastClosePrice - a.lastClosePrice);
       } catch (e) {
-        console.error("資料解析失敗", e);
+        console.error("JSON 解析失敗", e);
       }
     }
 
-    const analysis = `搜尋完成！共找到 ${stocks.length} 檔股票。`;
-    return { stocks, sources, analysis };
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw error;
+    return { stocks, sources, analysis: "完成" };
+  } catch (error: any) {
+    console.error("Gemini API 錯誤細節:", error);
+    // 拋出更具體的錯誤訊息
+    throw new Error(error.message || "連線至 Google AI 失敗，請檢查 Key 或網路。");
   }
 };
