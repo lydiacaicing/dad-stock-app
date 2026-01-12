@@ -15,8 +15,8 @@ export interface FilterState {
   minPrice: number;
   maxPrice: number;
   marketTypes: string[];
-  minLimitUp: number; // 新增：最小漲停次數
-  maxLimitUp: number; // 新增：最大漲停次數
+  minLimitUp: number;
+  maxLimitUp: number;
 }
 
 export interface GroundingSource {

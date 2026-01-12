@@ -30,20 +30,17 @@ const App: React.FC = () => {
     maxLimitUp: 20
   });
 
-  // 控制漲停次數的選單模式 ('custom' | 'all' | '0-10' | '10-20' | '20-30' | '30+')
   const [limitUpMode, setLimitUpMode] = useState<string>('custom');
-
   const [stocks, setStocks] = useState<StockLimitUpRecord[]>([]);
   const [sources, setSources] = useState<GroundingSource[]>([]);
   
-  // 修改預設狀態：一開始不載入，也沒有搜尋過
   const [loading, setLoading] = useState<boolean>(false);
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async (currentFilters: FilterState) => {
     setLoading(true);
-    setHasSearched(true); // 標記已經開始搜尋
+    setHasSearched(true);
     setError(null);
     try {
       const result = await fetchLimitUpRanking(currentFilters);
@@ -59,11 +56,6 @@ const App: React.FC = () => {
       setLoading(false);
     }
   }, []);
-
-  // 移除 useEffect，避免一載入就自動執行
-  // useEffect(() => {
-  //   loadData(filters);
-  // }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -96,7 +88,6 @@ const App: React.FC = () => {
         setFilters(prev => ({ ...prev, minLimitUp: 30, maxLimitUp: 999 }));
         break;
       case 'custom':
-        // 切換到自訂時，維持當前數值，讓使用者修改
         break;
     }
   };
@@ -114,7 +105,7 @@ const App: React.FC = () => {
     const header = "股票代號\t名稱\t收盤價\t累積漲停\t產業\n";
     const body = stocks.map(s => `${s.symbol}\t${s.name}\t${s.lastClosePrice}\t${s.limitUpCount}\t${s.sector}`).join('\n');
     navigator.clipboard.writeText(header + body);
-    alert("表格已經複製好了！可以直接貼到 Excel 或 Line。");
+    alert("表格已經複製好了！");
   };
 
   return (
@@ -165,7 +156,7 @@ const App: React.FC = () => {
             <div className="space-y-2">
               <label className="text-base font-bold text-slate-600 block">
                 <Calendar className="w-4 h-4 inline mr-1 mb-1" />
-                統計期間 (自動累計)
+                統計期間
               </label>
               <div className="flex gap-2">
                 <input type="date" name="startDate" value={filters.startDate} onChange={handleInputChange} 
@@ -191,7 +182,7 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* 次數設定 (使用選單 + 自訂) */}
+            {/* 次數設定 */}
             <div className="space-y-2">
               <label className="text-base font-bold text-slate-600 block">
                 累積漲停次數
@@ -260,7 +251,6 @@ const App: React.FC = () => {
       {/* 結果列表 */}
       <main className="max-w-5xl mx-auto pb-12 px-4">
         {!hasSearched ? (
-          // 初始畫面：還沒開始搜尋時顯示
           <div className="text-center py-20 bg-white/50 rounded-3xl border border-slate-200 border-dashed">
             <TrendingUp className="w-24 h-24 text-slate-200 mx-auto mb-6" />
             <h2 className="text-2xl font-black text-slate-400">準備好了嗎？</h2>
@@ -275,20 +265,11 @@ const App: React.FC = () => {
              {error === 'API_KEY_MISSING' ? (
                 <>
                   <h3 className="text-2xl font-black text-red-800 mb-2">還沒設定 AI 金鑰喔！</h3>
-                  <p className="text-lg text-red-700 font-bold mb-4">
-                    請把剛剛複製的 <code className="bg-white px-2 py-1 rounded border border-red-300 text-red-600">AIzaSy...</code> 貼到設定裡。
-                  </p>
-                  <div className="text-left max-w-lg mx-auto bg-white p-4 rounded-xl border border-red-100 text-slate-600 text-sm">
-                    <p className="font-bold mb-2">怎麼設定？</p>
-                    <ul className="list-disc list-inside space-y-1">
-                      <li>如果是 <b>Vercel</b>：去 Settings &gt; Environment Variables &gt; 新增 <code>API_KEY</code></li>
-                      <li>如果是 <b>電腦本機</b>：在專案目錄新增 <code>.env</code> 檔案，貼上 <code>API_KEY=你的金鑰</code></li>
-                    </ul>
-                  </div>
+                  <p className="text-lg text-red-700 font-bold mb-4">請設定 API_KEY。</p>
                 </>
              ) : (
                 <>
-                  <h3 className="text-2xl font-black text-red-800 mb-2">哎呀，連線有點問題</h3>
+                  <h3 className="text-2xl font-black text-red-800 mb-2">連線有點問題</h3>
                   <p className="text-lg text-red-700 font-bold">{error}</p>
                 </>
              )}
@@ -318,7 +299,7 @@ const App: React.FC = () => {
                   className="px-4 py-2 bg-white border-2 border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-lg flex items-center gap-2 transition-colors shadow-sm"
                 >
                   <Copy className="w-4 h-4" />
-                  複製表格內容
+                  複製內容
                 </button>
               )}
             </div>
@@ -326,8 +307,8 @@ const App: React.FC = () => {
             {loading ? (
               <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-sm">
                  <div className="w-16 h-16 border-8 border-slate-100 border-t-red-600 rounded-full animate-spin mx-auto mb-6"></div>
-                 <h3 className="text-xl font-black text-slate-800 mb-2">AI 正在幫您查 Goodinfo 資料...</h3>
-                 <p className="text-slate-500 font-bold">正在篩選價格 {filters.minPrice}~{filters.maxPrice} 元，且位於 {filters.marketTypes.join('、')} 的股票。</p>
+                 <h3 className="text-xl font-black text-slate-800 mb-2">AI 正在努力閱讀 Goodinfo 網站...</h3>
+                 <p className="text-slate-500 font-bold">這需要一點時間，因為 AI 正在一頁一頁幫您找 {filters.startDate} 到 {filters.endDate} 的資料。</p>
               </div>
             ) : (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -374,8 +355,7 @@ const App: React.FC = () => {
                         <tr>
                           <td colSpan={5} className="py-24 text-center">
                              <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                             <p className="text-xl font-black text-slate-400">這段時間內，沒有找到符合「{filters.minPrice}~{filters.maxPrice}元」的漲停股喔！</p>
-                             <p className="text-base font-bold text-slate-400 mt-2">爸爸您可以試著把價格範圍調大一點點看看？</p>
+                             <p className="text-xl font-black text-slate-400">沒有找到符合條件的股票。</p>
                           </td>
                         </tr>
                       )}
@@ -384,22 +364,6 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-
-            <div className="mt-8 bg-green-50 border border-green-200 rounded-xl p-5 flex gap-4 items-start shadow-sm">
-                <div className="bg-green-100 p-2 rounded-full">
-                   <AlertCircle className="w-6 h-6 text-green-700" />
-                </div>
-                <div>
-                    <h4 className="font-black text-green-800 text-lg mb-1">給爸爸的安心提醒：</h4>
-                    <p className="text-green-800 font-bold leading-relaxed text-base">
-                        這個程式是使用 Google 搜尋引擎去「閱讀」Goodinfo 和 MoneyDJ 的公開網頁，
-                        **不是** 用駭客程式去爬他們的資料庫。
-                        <br/>
-                        這就像是請了一個秘書幫您去 Google 搜尋「Goodinfo 1月9號 漲停股」然後整理給您看一樣，
-                        <span className="text-red-600 font-black">絕對安全，不會被封鎖</span>，請放心使用！
-                    </p>
-                </div>
-            </div>
           </>
         )}
       </main>
