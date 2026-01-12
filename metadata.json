@@ -1,0 +1,7 @@
+{
+  "name": " Taiwan Stock Limit-Up Analyzer",
+  "description": "An advanced stock analysis tool focused on the Taiwan Stock Market (TWSE/TPEx), specializing in identifying and ranking stocks that have reached their 10% daily limit-up price over a selected period.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
